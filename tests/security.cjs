@@ -204,6 +204,30 @@ function newCapacityScope() {
   assert.equal(s.routeAround('game'), 'game');
 }
 
+{ // Rapid single dismissals must skip rows still playing their exit animation.
+  const s = newCapacityScope();
+  vm.runInContext(extract(source, 'function dismissOne(): string', 'function invokeLast()')
+    .replace('(): string', '()'), s);
+  assert.equal(s.dismissOne(), 'none');
+  const senders = [1, 2, 3, 4].map(id => s.fakeNotification(id));
+  for (const sender of senders) s.handleNotification(sender);
+  s.drainCallLater();
+  const keys = s.toasts.rows.map(row => row.key);
+  s.closeToast(keys[0], 'expired');
+  for (const key of keys.slice(1)) {
+    assert.equal(s.dismissOne(), 'ok');
+    assert.equal(s.leaving[key], 'dismissed', 'each press selects the next live card');
+  }
+  assert.equal(s.dismissOne(), 'none', 'departing cards are not dismissible');
+  assert.equal(s.toasts.count, 4, 'exit animations retain their model rows');
+  assert.equal(s.leaving[keys[0]], 'expired', 'dismissal preserves an earlier expiry');
+  for (const key of keys) s.finishClose(key, s.leaving[key]);
+  assert.equal(s.toasts.count, 0);
+  assert.equal(senders[3].expiries, 1);
+  for (const sender of senders.slice(0, 3)) assert.equal(sender.dismissals, 1);
+  for (const sender of senders) assert.equal(sender.closeAttempts, 1);
+}
+
 { // Dismiss the visible deck, including across mode changes and exit animations.
   const Layout = load('Layout');
   function fixture(stacking, expanded, openDeck) {

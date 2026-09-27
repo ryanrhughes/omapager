@@ -2186,9 +2186,14 @@ Item {
     function dismissAll(): string { service.clearDeck("dismissed"); return "ok" }
 
     function dismissOne(): string {
-      if (toasts.count === 0) return "none"
-      service.closeToast(String(toasts.get(0).key), "dismissed")
-      return "ok"
+      // Departing rows stay in the model until the scene settles.
+      for (var i = 0; i < toasts.count; i++) {
+        var key = String(toasts.get(i).key)
+        if (service.leaving[key]) continue
+        service.closeToast(key, "dismissed")
+        return "ok"
+      }
+      return "none"
     }
 
     function invokeLast(): string {

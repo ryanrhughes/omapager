@@ -95,6 +95,14 @@ stationary pointer and leave the next close control disabled.
 
 ### Stack dismissal regression
 
+Send three critical notifications and call `notifications dismissOne` three
+times within the 320ms exit animation (`SUPER + ,` uses this method). Each
+call must dismiss the next non-departing card; after the scene settles, no
+cards should remain. An extra call while every row is departing must return
+`none`, just as it does for an empty model. Repeat with separate sources and
+with `stacking = all`. `node tests/security.cjs` covers rapid dismissal,
+skipping a card already expiring, and closing each sender exactly once.
+
 In an isolated lab, send critical notifications from two sources. Check
 `notifications dismissAll` clears the open stack, or the newest visible stack
 when none is open. Switch between `source` and `all` with a stack open and
