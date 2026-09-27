@@ -46,9 +46,22 @@ integration stability, as the plan requires.
    does not substitute the host session when running inside a private session.
    Omarchy `omarchy-action` toasts may also carry `omarchy-exec-argv`. That argv
    is re-parsed on activate, never written to history, and ignored from any
-   other app. Only tensaku-edit, tensaku, satty, swappy and omasnap run,
-   as a bare name or under /usr/bin or /usr/local/bin. Relative paths,
-   other directories and leading-dash programs fail closed. App names are claims.
+   other app. Screenshot editors tensaku-edit, tensaku, satty, swappy and omasnap
+   retain their bare-name, /usr/bin and /usr/local/bin policy. The separate
+   `omapager-action` broker handles `xdg-open` and `omarchy-agent-crash` (bare or
+   /usr/bin spellings only). File opening requires one absolute local path with
+   no traversal, controls or backslashes, not an arbitrary URL. At activation
+   the broker rejects missing files, non-regular files, final symlinks, executable
+   files and `.desktop` launchers, then passes an encoded file URI to the fixed
+   `/usr/bin/xdg-open`. The app reopens the path; same-user rename races after
+   validation are not prevented. Crash actions are reduced to a positive numeric
+   PID before admission; sender-supplied process/command/signal metadata never
+   reaches the agent prompt. Activation checks the PID again and invokes the
+   configured Omarchy installation's `bin/omarchy-agent-crash` with only that PID.
+   Neither new executable is resolved through PATH. App names are claims, not
+   provenance: these explicit actions are allowed capabilities for a claimed
+   `omarchy-action` sender, outside the background-helper sandbox. No command is
+   launched on notification receipt or restored from history.
 
 ## Deliberate URL compatibility restrictions
 

@@ -54,10 +54,9 @@ function openExternalUrl(raw) {
   return safe ? Qt.openUrlExternally(safe) : false
 }
 
-// Omarchy screenshot toasts carry the click command as hint omarchy-exec-argv.
-// Stock omarchy.notifications runs whatever argv omarchy-action sends. App
-// names are claims (docs/THREAT_MODEL.md), so this parser allowlists the
-// screenshot editors Omarchy actually launches and rejects everything else.
+// App names are claims, not authentication. Screenshot editors retain their
+// existing policy; first-party file/crash actions have separate argument rules
+// and go through the activation helper rather than directly executing the hint.
 function parseOmarchyExecArgv(value) {
   if (Array.isArray(value)) {
     try { value = JSON.stringify(value) } catch (e) { return null }
@@ -75,6 +74,18 @@ function parseOmarchyExecArgv(value) {
   var prog = parsed[0]
   if (!prog || prog.charAt(0) === "-") return null
   var base = prog.substring(prog.lastIndexOf("/") + 1)
+  if (base === "xdg-open" || base === "omarchy-agent-crash") {
+    if (prog !== base && prog !== "/usr/bin/" + base) return null
+    if (base === "xdg-open") {
+      if (parsed.length !== 2 || !safeLocalFilePath(parsed[1])) return null
+      return [base, parsed[1]]
+    }
+    if (parsed.length < 2 || parsed.length > 5 || !/^[1-9][0-9]{0,9}$/.test(parsed[1])
+        || Number(parsed[1]) > 2147483647) return null
+    // The stock command supports PID-only diagnosis. Do not let notification
+    // metadata become instructions in its agent prompt.
+    return [base, parsed[1]]
+  }
   if (!/^(?:tensaku-edit|tensaku|satty|swappy|omasnap)$/.test(base)) return null
   if (prog.charAt(0) === "/") {
     if (prog.indexOf("\0") >= 0 || /\/\.\.(?:\/|$)/.test(prog)) return null
@@ -83,4 +94,11 @@ function parseOmarchyExecArgv(value) {
     return null
   }
   return parsed
+}
+
+function safeLocalFilePath(path) {
+  return typeof path === "string" && path.length <= MAX_URL
+      && /^\/[^/]/.test(path) && !/[\x00-\x1f\x7f-\x9f\\]/.test(path)
+      && !/\/(?:\.|\.\.)(?:\/|$)/.test(path) && !/\/\//.test(path)
+      && path.charAt(path.length - 1) !== "/" && !/\.desktop$/i.test(path)
 }

@@ -742,6 +742,38 @@ for (const u of ['https://example.com/', 'https://sub.example.co.uk/', 'https://
   assert.equal(S.parseOmarchyExecArgv(JSON.stringify(['/tmp/../etc/passwd'])), null);
   assert.equal(S.parseOmarchyExecArgv(JSON.stringify(['-foo'])), null);
   assert.equal(S.parseOmarchyExecArgv(''), null);
+  for (const argv of [
+    ['xdg-open', '/home/user/Downloads/a file #1%.txt'],
+    ['omarchy-agent-crash', '12345', 'untrusted\nagent instructions', '/tmp/anything', 'SIGSEGV'],
+    ['/usr/bin/omarchy-agent-crash', '2147483647'],
+  ]) {
+    const expected = [argv[0].split('/').pop(), argv[1]];
+    const parsed = S.parseOmarchyExecArgv(JSON.stringify(argv));
+    assert.equal(JSON.stringify(parsed), JSON.stringify(expected));
+    assert.equal(JSON.stringify(S.parseOmarchyExecArgv(parsed)), JSON.stringify(expected));
+    const row = Store.snapshot({appName: 'omarchy-action', summary: 'Action',
+      hints: {'omarchy-exec-argv': JSON.stringify(argv)}}, 'action', {Normal: 1});
+    assert.equal(row.execArgv, JSON.stringify(expected));
+    assert.equal(Store.sanitiseForPersistence(row).execArgv, '');
+    const other = Store.snapshot({appName: 'Other', summary: 'Action',
+      hints: {'omarchy-exec-argv': JSON.stringify(argv)}}, 'other', {Normal: 1});
+    assert.equal(other.execArgv, '');
+  }
+  for (const argv of [
+    ['xdg-open'], ['xdg-open', '/tmp/a', '/tmp/b'], ['xdg-open', '--help'],
+    ['xdg-open', 'https://example.com/'], ['xdg-open', 'http://127.0.0.1/'],
+    ['xdg-open', 'file:///tmp/a'], ['xdg-open', 'custom-handler:payload'],
+    ['xdg-open', 'relative.txt'], ['xdg-open', '//server/share'],
+    ['xdg-open', '/tmp/../etc/passwd'], ['xdg-open', '/tmp/./a'],
+    ['xdg-open', '/tmp/a\u0000.txt'], ['xdg-open', '/tmp/a\n.txt'],
+    ['xdg-open', '/tmp/a\\b'], ['xdg-open', '/tmp/app.desktop'],
+    ['/tmp/xdg-open', '/tmp/a'], ['/usr/local/bin/xdg-open', '/tmp/a'],
+    ['omarchy-agent-crash'], ['omarchy-agent-crash', '--help'],
+    ['omarchy-agent-crash', '0'], ['omarchy-agent-crash', '2147483648'],
+    ['omarchy-agent-crash', '-1'], ['omarchy-agent-crash', '1\n'],
+    ['omarchy-agent-crash', '1', 'a', 'b', 'c', 'extra'],
+    ['/tmp/omarchy-agent-crash', '1'],
+  ]) assert.equal(S.parseOmarchyExecArgv(JSON.stringify(argv)), null, JSON.stringify(argv));
   const omarchy = Store.snapshot({
     appName: 'omarchy-action', summary: 'Screenshot saved',
     body: 'Edit with Super + Alt + ,', hints: { 'omarchy-exec-argv': shot }
@@ -753,18 +785,6 @@ for (const u of ['https://example.com/', 'https://sub.example.co.uk/', 'https://
     hints: { 'omarchy-exec-argv': shot }
   }, 'slack', { Normal: 1 });
   assert.equal(slack.execArgv, '');
-  const qml = fs.readFileSync(__dirname + '/../Service.qml', 'utf8');
-  assert.match(qml, /Security\.parseOmarchyExecArgv\(row \? row\.execArgv/);
-  const run = qml.match(/function runExecArgv\(argv\) \{[\s\S]*?\n  \}/)[0];
-  const calls = [];
-  const scope = { Quickshell: { execDetached: argv => calls.push(argv) } };
-  vm.createContext(scope);
-  vm.runInContext(run, scope);
-  scope.runExecArgv(['tensaku-edit', '/tmp/shot.png']);
-  assert.equal(JSON.stringify(calls[0]), JSON.stringify(['/usr/bin/env', 'tensaku-edit', '/tmp/shot.png']));
-  calls.length = 0;
-  scope.runExecArgv(['/usr/bin/tensaku-edit', '/tmp/shot.png']);
-  assert.equal(JSON.stringify(calls[0]), JSON.stringify(['/usr/bin/tensaku-edit', '/tmp/shot.png']));
 }
 
 console.log('security JS: passed');

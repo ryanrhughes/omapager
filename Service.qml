@@ -31,6 +31,7 @@ Item {
   readonly property string home: Quickshell.env("HOME")
   readonly property string storeBin: Qt.resolvedUrl("bin/omapager-run-store").toString().replace(/^file:\/\//, "")
   readonly property string iconBin: Qt.resolvedUrl("bin/omapager-run-icon").toString().replace(/^file:\/\//, "")
+  readonly property string actionBin: Qt.resolvedUrl("bin/omapager-action").toString().replace(/^file:\/\//, "")
 
   // Missing website icons are fetched automatically unless the user opts out.
   property bool fetchIcons: true
@@ -1612,7 +1613,10 @@ Item {
   }
 
   function runExecArgv(argv) {
-    Quickshell.execDetached(argv[0].charAt(0) === "/" ? argv : ["/usr/bin/env"].concat(argv))
+    if (argv[0] === "xdg-open" || argv[0] === "omarchy-agent-crash")
+      Quickshell.execDetached(["/usr/bin/python3", "-I", service.actionBin].concat(argv))
+    else
+      Quickshell.execDetached(argv[0].charAt(0) === "/" ? argv : ["/usr/bin/env"].concat(argv))
   }
 
   function activate(key) {

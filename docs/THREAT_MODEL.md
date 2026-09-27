@@ -23,7 +23,7 @@ window title does not prove origin.
 | Website/redirect/DNS/image | Network and decoder | Opt-in, public pinned address, TLS validation, caps, sandbox |
 | Notification row | Persistent state | Separate sanitisation, private atomic files, bounded retention |
 | Action/reply/clipboard | External side effect | Explicit user action, argv, bounded values, exact reply matching |
-| omarchy-exec-argv hint | Process exec | Allowlisted screenshot editors only; re-parse on activate; never persisted |
+| omarchy-exec-argv hint | Process exec | Screenshot-editor allowlist; separately brokered local-file opening and PID-only crash diagnosis; re-parse on activate; never persisted |
 | Window focus target | Hyprland Lua | Compositor hexadecimal address only |
 | Helper process | HOME/network | Bubblewrap fail-closed profiles |
 | GitHub PR | CI token/tools | SHA-pinned actions, read-only default, no secrets or privileged PR trigger |
@@ -37,6 +37,16 @@ clients can post spoofed messages and invoke the existing IPC action verbs; thes
 verbs are not an authentication boundary. KDE helper filesystem isolation does
 not mediate destinations on the session bus. Restricting that bus needs a proxy
 or daemon redesign and separate integration work.
+
+The two first-party action names do not authenticate their sender. A claimed
+`omarchy-action` notification can offer an explicit click to open a local file
+or diagnose a numeric PID; it cannot pass arbitrary URLs or sender-written crash
+metadata to those commands. Local-file checks reject final symlinks, special
+files, executable files and `.desktop` launchers, but the desktop application
+reopens the path. Same-user replacements after the check and vulnerabilities in
+the user's selected file viewer are not prevented by this broker. Crash diagnosis
+uses the user's configured agent and existing system crash data, not a sandboxed
+or read-only agent. Neither action runs without activation.
 
 Kernel/firmware compromise, physical access to an unlocked session and an attacker
 already executing arbitrary code as the logged-in user are outside the promised

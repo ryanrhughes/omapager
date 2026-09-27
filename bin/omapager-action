@@ -1,0 +1,57 @@
+#!/usr/bin/python3
+"""Activate the two non-editor Omarchy actions without a general exec capability."""
+import os
+from pathlib import Path
+import re
+import stat
+import sys
+
+
+def local_file_uri(value):
+    # Keep this grammar aligned with Security.safeLocalFilePath. Filesystem
+    # checks happen here, at activation, not when the notification arrives.
+    if (len(value) > 4096 or not re.match(r"/[^/]", value)
+            or re.search(r"[\x00-\x1f\x7f-\x9f\\]", value)
+            or re.search(r"/(?:\.|\.\.)(?:/|$)", value)
+            or "//" in value or value.endswith("/")
+            or value.lower().endswith(".desktop")):
+        raise ValueError("invalid local file path")
+    path = Path(value)
+    info = path.lstat()
+    if not stat.S_ISREG(info.st_mode) or info.st_mode & 0o111:
+        raise ValueError("expected a non-executable regular file")
+    # An encoded file URI cannot become an option or another URI scheme.
+    # The desktop application reopens the file: this is not isolation from
+    # another same-user process racing a rename after validation.
+    return path.as_uri()
+
+
+def action_command(argv):
+    if len(argv) != 2 or any(not isinstance(arg, str) for arg in argv):
+        raise ValueError("expected one action argument")
+    program, value = argv
+    if program == "xdg-open":
+        return ["/usr/bin/xdg-open", local_file_uri(value)]
+    if program == "omarchy-agent-crash":
+        if not re.fullmatch(r"[1-9][0-9]{0,9}", value) or int(value) > 2147483647:
+            raise ValueError("invalid crash PID")
+        # OMARCHY_PATH is shell configuration, never notification input.
+        root = Path(os.environ.get("OMARCHY_PATH", "/usr/share/omarchy"))
+        if not root.is_absolute():
+            raise ValueError("invalid Omarchy installation path")
+        return [str(root / "bin/omarchy-agent-crash"), value]
+    raise ValueError("unsupported notification action")
+
+
+def main():
+    try:
+        command = action_command(sys.argv[1:])
+        os.execv(command[0], command)
+    except (OSError, ValueError):
+        # Do not log sender-supplied paths or other notification contents.
+        print("omapager: notification action refused or unavailable", file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())
