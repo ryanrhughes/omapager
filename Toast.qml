@@ -671,9 +671,10 @@ Item {
             // Second gate on the same rule. Markup drops an anchor it will
             // not vouch for, so nothing unsafe should arrive here - but this
             // is one regex away from being wrong, and the cost of the check
-            // is a function call.
+            // is a function call. The daemon opens it, so a link to a site
+            // with an installed web app can land in that app.
             onLinkActivated: function(url) {
-              Security.openExternalUrl(url)
+              if (Security.isAllowedScheme(url)) card.offerTaken("link", String(url))
             }
           }
 

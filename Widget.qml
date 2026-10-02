@@ -207,6 +207,8 @@ BarWidget {
     var codes = setting("codesBypassQuiet", null)
     if (codes !== null) service.setCodesBypassQuiet(codes !== false)
     service.smartRaise = setting("smartRaise", true) !== false
+    service.openInAppRoutes = setting("openInAppRoutes", false) === true
+    service.preferWebApps = setting("preferWebApps", false) === true
     service.wakeHour = Number(setting("wakeHour", 8)) || 8
     service.sourceLimit = Number(setting("sourceLimit", 8)) || 8
     service.heldPerSource = Number(setting("heldPerSource", 10)) || 10

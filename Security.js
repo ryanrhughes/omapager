@@ -49,6 +49,31 @@ function hostOf(raw) {
   var u=safeHttpUrl(raw), m=u.match(/^https?:\/\/([^/:?#]+)/)
   return m ? m[1] : ''
 }
+// The site an installed web app opens, from its desktop entry's argv: Omarchy
+// writes `omarchy-launch-webapp <url>`, a hand-made entry `chromium --app=<url>`.
+// Anything else is not a web app, and an unsafe URL is not a site.
+function webAppHostOf(argv) {
+  if (!Array.isArray(argv) || argv.length < 2 || argv.length > 32) return ''
+  var prog=String(argv[0]||''), base=prog.substring(prog.lastIndexOf('/')+1)
+  if (base==='omarchy-launch-webapp') return hostOf(String(argv[1]||''))
+  for (var i=1;i<argv.length;i++) {
+    var arg=String(argv[i]||'')
+    if (arg.indexOf('--app=')===0) return hostOf(arg.substring(6))
+  }
+  return ''
+}
+// Whether a host belongs to a web app's site. Subdomains either way round
+// (lvgl.slack.com and slack.com), and siblings under a registered name of four
+// or more letters (calendar.google.com and mail.google.com). A shorter
+// penultimate label is usually a public suffix ("co.uk"), which names nobody.
+function sameSite(a, b) {
+  a=canonicalHostname(String(a||'')); b=canonicalHostname(String(b||''))
+  if (!a || !b) return false
+  if (a===b || a.slice(-b.length-1)==='.'+b || b.slice(-a.length-1)==='.'+a) return true
+  var la=a.split('.'), lb=b.split('.')
+  return la.length>2 && lb.length>2 && la[la.length-2].length>=4
+      && la.slice(-2).join('.')===lb.slice(-2).join('.')
+}
 function openExternalUrl(raw) {
   var safe=safeExternalUrl(raw)
   return safe ? Qt.openUrlExternally(safe) : false
