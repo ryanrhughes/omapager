@@ -169,6 +169,8 @@ below apply to new configurations, not choices you have already saved.
 | `snoozeDurations` | `30, 60, 240, tomorrow` | Offer `15`, `30`, `60`, `120`, `240` or `480` minutes, or `tomorrow`. An empty selection uses the defaults. |
 | `wakeHour` | `8` | Wake hour for `tomorrow`, from 0 to 23. Currently `0` falls back to `8`. |
 | `smartRaise` | `true` | Match notification websites against browser window titles when focusing a window. |
+| `openInAppRoutes` | `false` | A website notification's "Open in app" focuses the window already showing the site, as a card click does, instead of letting the browser open a new window. |
+| `preferWebApps` | `false` | Open sites that have an installed web app (an `omarchy-launch-webapp` or `--app=` desktop entry) in that app: the app itself when no window shows a notification's source, and links to the site as app windows instead of browser tabs. |
 | `alwaysShow` | `false` | Keep the bar indicator visible when nothing is held back. |
 | `codesBypassQuiet` | `true` | Let verification codes through snooze and Do Not Disturb. |
 | `timeFormat` | `system` | Use the `LC_TIME` locale, or choose `24h` or `12h`. |

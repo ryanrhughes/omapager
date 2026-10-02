@@ -811,4 +811,20 @@ for (const u of ['https://example.com/', 'https://sub.example.co.uk/', 'https://
   assert.equal(slack.execArgv, '');
 }
 
+{ // Web app discovery reads a site out of a desktop entry's argv, and nothing else.
+  assert.equal(S.webAppHostOf(['omarchy-launch-webapp', 'https://app.slack.com/client/T01']), 'app.slack.com');
+  assert.equal(S.webAppHostOf(['/usr/bin/omarchy-launch-webapp', 'https://Linear.app/']), 'linear.app');
+  assert.equal(S.webAppHostOf(['chromium', '--profile-directory=Default', '--app=https://web.whatsapp.com/']), 'web.whatsapp.com');
+  for (const argv of [['omarchy-launch-webapp', 'javascript:alert(1)'], ['omarchy-launch-webapp', 'https://user@evil.example/'],
+                      ['chromium', 'https://example.com/'], ['firefox', '--new-window', 'https://example.com/'],
+                      ['omarchy-launch-webapp'], 'omarchy-launch-webapp https://example.com/', null])
+    assert.equal(S.webAppHostOf(argv), '', JSON.stringify(argv));
+  for (const [a, b] of [['app.slack.com', 'app.slack.com'], ['lvgl.slack.com', 'slack.com'], ['slack.com', 'app.slack.com'],
+                        ['lvgl.slack.com', 'app.slack.com'], ['calendar.google.com', 'mail.google.com'], ['APP.Slack.com.', 'app.slack.com']])
+    assert.ok(S.sameSite(a, b), a + ' ~ ' + b);
+  for (const [a, b] of [['bbc.co.uk', 'evil.co.uk'], ['news.bbc.co.uk', 'evil.co.uk'], ['notslack.com', 'slack.com'],
+                        ['x.com', 'y.com'], ['slack.com.evil.example', 'slack.com'], ['127.0.0.1', '127.0.0.1'], ['', 'slack.com']])
+    assert.ok(!S.sameSite(a, b), a + ' !~ ' + b);
+}
+
 console.log('security JS: passed');

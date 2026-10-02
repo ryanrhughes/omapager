@@ -46,6 +46,8 @@
       "codesBypassQuiet": true,
       "timeFormat": "system",
       "smartRaise": true,
+      "openInAppRoutes": false,
+      "preferWebApps": false,
       "displayMode": "active",
       "displayName": "",
       "edgeSpacing": 12,
@@ -222,6 +224,20 @@
         "label": "Match browser window titles",
         "description": "Match notification websites to browser window titles when focusing a window.",
         "defaultValue": true
+      },
+      {
+        "key": "openInAppRoutes",
+        "type": "boolean",
+        "label": "Route \"Open in app\" for web notifications",
+        "description": "A website notification's \"Open in app\" focuses the window already showing the site, as a card click does, instead of letting the browser open a new window.",
+        "defaultValue": false
+      },
+      {
+        "key": "preferWebApps",
+        "type": "boolean",
+        "label": "Open sites in installed web apps",
+        "description": "When a site has an installed web app, open it there: the app itself when no window shows the source, and links to the site as app windows instead of browser tabs.",
+        "defaultValue": false
       },
       {
         "key": "displayMode",

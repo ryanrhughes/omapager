@@ -1416,6 +1416,18 @@ Item {
 
   function invokeAction(key, identifier) {
     if (typeof identifier !== "string" || identifier.length > Security.MAX_ACTION_ID) return
+    // A browser's "Open in app" is the browser's idea of where the site lives,
+    // and for an Omarchy web app that is a fresh browser window, not the app
+    // window already showing it. Route it like a card click instead.
+    if (identifier === "default" && openInAppRoutes) {
+      var at = rowIndexFor(key)
+      var row = at >= 0 ? toasts.get(at) : null
+      if (row && Markup.hostname(row.source)) {
+        route(row)
+        closeToast(key, "activated")
+        return
+      }
+    }
     var ref = refs[key]
     if (ref && ref.actions) {
       for (var i = 0; i < Math.min(ref.actions.length, Security.MAX_ACTIONS); i++) {
@@ -1483,6 +1495,42 @@ Item {
   // new tab - so it is on. Turn it off and a source with no window of its own
   // opens its site instead of raising a window that might be the wrong one.
   property bool smartRaise: true
+
+  // Both off by default: each changes where a click lands. `openInAppRoutes`
+  // sends a web notification's "Open in app" through routing rather than back
+  // to the browser. `preferWebApps` opens a site that has an installed web app
+  // in that app - the source when no window shows it, and links to it - rather
+  // than in a browser tab.
+  property bool openInAppRoutes: false
+  property bool preferWebApps: false
+
+  // The installed web app for a host, or null. Read from the desktop entries
+  // on every call: they are few, and installing or removing one should not
+  // need a shell restart to be noticed.
+  function webAppFor(host) {
+    if (!host || typeof DesktopEntries === "undefined" || !DesktopEntries.applications) return null
+    var entries = DesktopEntries.applications.values
+    var related = null
+    for (var i = 0; i < entries.length; i++) {
+      var site = Security.webAppHostOf(entries[i].command ? Array.from(entries[i].command) : [])
+      if (!site) continue
+      if (site === host) return entries[i]
+      if (!related && Security.sameSite(site, host)) related = entries[i]
+    }
+    return related
+  }
+
+  // Every link this daemon opens comes through here. A site with an installed
+  // web app opens as one - `omarchy-launch-webapp` puts the URL behind its own
+  // `--app=` flag, and it has passed the same validation as any other link.
+  function openUrl(raw) {
+    var safe = Security.safeHttpUrl(String(raw || ""))
+    if (preferWebApps && safe && webAppFor(Security.hostOf(safe))) {
+      Quickshell.execDetached(["omarchy-launch-webapp", safe])
+      return true
+    }
+    return Security.openExternalUrl(String(raw || ""))
+  }
 
   readonly property var browserClasses: /^(chrome|chromium|firefox|zen|brave|edge|vivaldi)/
 
@@ -1640,28 +1688,35 @@ Item {
       }
     }
 
-    if (!handled) {
-      if (row) {
-        // Source first, link last. A Slack message quoting a link to
-        // somewhere else is still a Slack notification: clicking it should
-        // take you to Slack, not to whatever URL happened to be in the text.
-        // That link already has its own button. Checked against 300 stored
-        // notifications, where the wrong order would have sent 20 clicks to
-        // the wrong place - including a Slack card that would have opened
-        // axiom.co.
-        // The sender's own window first, then the source's, then the site.
-        var win = windowForPid(row.senderPid) || windowForSource(row.source)
-        if (win) focusWindow(win)
-        // Not `indexOf(".") > 0`. A source is lifted out of text the sender
-        // wrote, and "https://" + it is a URL going wherever it says - so it
-        // has to be a hostname by the same test omapager-icon uses before it
-        // will fetch anything, not merely a string with a dot in it.
-        else if (Markup.hostname(row.source))
-          Security.openExternalUrl("https://" + Markup.hostname(row.source) + "/")
-        else if (String(row.link || "")) Security.openExternalUrl(String(row.link))
-      }
-    }
+    if (!handled && row) route(row)
     closeToast(key, "activated")
+  }
+
+  // Where a click on a notification goes when the sender is not asked.
+  function route(row) {
+    // Source first, link last. A Slack message quoting a link to
+    // somewhere else is still a Slack notification: clicking it should
+    // take you to Slack, not to whatever URL happened to be in the text.
+    // That link already has its own button. Checked against 300 stored
+    // notifications, where the wrong order would have sent 20 clicks to
+    // the wrong place - including a Slack card that would have opened
+    // axiom.co.
+    // The sender's own window first, then the source's, then the site.
+    var win = windowForPid(row.senderPid) || windowForSource(row.source)
+    if (win) { focusWindow(win); return }
+    // Not `indexOf(".") > 0`. A source is lifted out of text the sender
+    // wrote, and "https://" + it is a URL going wherever it says - so it
+    // has to be a hostname by the same test omapager-icon uses before it
+    // will fetch anything, not merely a string with a dot in it.
+    var host = Markup.hostname(row.source)
+    if (host) {
+      // The app as installed, not its bare host: a Slack web app opens on
+      // its workspace, app.slack.com/ on a workspace picker.
+      var app = preferWebApps ? webAppFor(host) : null
+      if (app) app.execute()
+      else openUrl("https://" + host + "/")
+    }
+    else if (String(row.link || "")) openUrl(String(row.link))
   }
 
   // ------------------------------------------------------------- replying
@@ -1861,7 +1916,7 @@ Item {
       copyText(value, true)
     }
     else if (kind === "phone") copyText(value, false)
-    else Security.openExternalUrl(value)
+    else openUrl(value)
 
     // A copied code is a finished notification: it exists to carry six digits
     // to a login box, and once they are on the clipboard there is nothing left
@@ -2008,6 +2063,8 @@ Item {
         hasWlCopy: service.hasWlCopy, security: service.sandboxStatus,
         fetchRemoteIcons: service.fetchIcons,
         allowDefaultActionOnCardClick: service.allowDefaultActionOnCardClick,
+        openInAppRoutes: service.openInAppRoutes,
+        preferWebApps: service.preferWebApps,
         sharingActive: service.sharingActive, sharingStreams: service.sharingStreams,
         sharingOfferPending: service.sharingOfferPending, offerSnoozeWhenSharing: service.offerSnoozeWhenSharing,
         globalSnoozeUntil: service.globalSnoozeUntil,
