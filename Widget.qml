@@ -569,6 +569,15 @@ BarWidget {
       anchors.fill: parent
       blocked: pager.settingsView
       onCloseRequested: controller.hide()
+      // Tab/shift-tab cycle through the bar's panels the way every first-party
+      // panel does. This widget is its own panel (see the open/close/opened
+      // comment above), so it drives the bar's switcher directly instead of
+      // going through Ui/Panel's switchPanel().
+      onTabRequested: function(direction) {
+        if (pager.bar && typeof pager.bar.switchPanelFrom === "function")
+          return pager.bar.switchPanelFrom(pager, direction)
+        return false
+      }
       onMoveRequested: function(dx, dy) {
         if (pager.settingsView || dy === 0 || pager.sources.length === 0) return
         pager.cursorAt = Math.max(0, Math.min(pager.sources.length - 1, pager.cursorAt + dy))
