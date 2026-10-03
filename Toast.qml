@@ -396,13 +396,22 @@ Item {
                                        ? String(card.row.image) : card.senderImage
         readonly property string resolved: asUrl(card.row.stored_image)
 
+        // A web notification's sender image is the browser badge or the
+        // site artwork Chromium downloaded to a temp file; both die with the
+        // notification. The resolved icon was copied into the icon cache, so
+        // on a web card it is the durable one and the sender's pixels are
+        // only a fallback until it draws.
+        readonly property bool webRow: String(card.row.groupKey || "").indexOf("web:") === 0
+
         // The sender's own picture wins while it works - for a message
         // forwarded from a phone that is often the contact's photo, which
         // beats any app icon. When it will not draw, the resolved one takes
         // over rather than the card falling back to a letter.
         property bool sentFailed: false
         onSentChanged: sentFailed = false
-        readonly property string best: (sent && !sentFailed) ? sent : resolved
+        readonly property string best: webRow
+                                       ? (resolved || ((sent && !sentFailed) ? sent : ""))
+                                       : ((sent && !sentFailed) ? sent : resolved)
 
         BorderSurface {
           anchors.fill: parent

@@ -147,7 +147,12 @@ function normalise(row) {
   var okIconPath = out.image.indexOf("image://icon//") === 0
                 && out.image.indexOf("..") === -1
   out.image = (okQsimage || okIconPath) ? out.image : ""
-  out.stored_image = ""
+  // A resolved icon is persisted after the card is gone, so it has to
+  // survive the next read or every shell restart re-resolves from scratch.
+  // Keep the same shape as okIconPath: an absolute path with no traversal.
+  var okStoredImage = out.stored_image.indexOf("/") === 0
+                    && out.stored_image.indexOf("..") === -1
+  out.stored_image = okStoredImage ? out.stored_image : ""
   out.bodyRich = Markup.render(out.body)
   out.bodyLine = Markup.oneLine(out.body)
   out.groupKey = Markup.regroup(out)

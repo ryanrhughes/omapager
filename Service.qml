@@ -750,9 +750,18 @@ Item {
     }
     for (var i = 0; i < iconQueue.length; i++) if (iconQueue[i].key === key) return
     if (iconQueue.length >= 100) return
+    // Web notifications carry the site's artwork as an image-path temp file
+    // wrapped in the icon scheme. Pass the path for web rows only: the helper
+    // copies the pixels into its own cache before the browser deletes them.
+    // A qsimage handle is raw pixels, not a path, and stays with
+    // wantSenderImage.
+    var image = ""
+    if (String(row.groupKey || "").indexOf("web:") === 0
+        && /^image:\/\/icon\/\//.test(String(row.image || "")))
+      image = String(row.image).substring("image://icon/".length)
     iconQueue.push({ key: key, app: String(row.app || ""),
                      appIcon: String(row.appIcon || ""),
-                     source: String(row.source || "") })
+                     source: String(row.source || ""), image: image })
     pumpIcons()
   }
 
@@ -766,6 +775,7 @@ Item {
     var args = [iconBin, "--key=" + job.key, "--app=" + job.app,
                 "--app-icon=" + job.appIcon, "--source=" + job.source,
                 "--scheme", service.lightTheme ? "light" : "dark"]
+    if (job.image) args.push("--image=" + job.image)
     if (fetchIcons) args.push("--fetch")
     iconProc.command = args
     iconProc.running = true
@@ -782,7 +792,12 @@ Item {
       copy.stored_image = path
       Store.write(storeProc, storeBin, "put", copy)
     }
-
+    // The card may already have left the screen, in which case the loop above
+    // wrote nothing and the in-memory snapshot is gone. Record the resolved
+    // path in the store anyway: the live file if it is still there, otherwise
+    // the newest history entry the key closed into. Persisting it is what
+    // lets the icon outlive the browser's temp file.
+    if (path) Store.write(storeProc, storeBin, "icon", null, [key, path])
   }
 
   Process {

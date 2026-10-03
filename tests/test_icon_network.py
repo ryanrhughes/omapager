@@ -312,7 +312,7 @@ class IconResolutionTest(unittest.TestCase):
         return mock.patch.dict(icon, {
             "from_config": lambda _names: None,
             "from_icon_theme": lambda _names: None,
-            "from_desktop_entries": lambda _names: None,
+            "from_desktop_entries": lambda _names, **_kwargs: None,
         })
 
     def test_html_and_manifest_candidates_are_https_only(self):

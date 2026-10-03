@@ -49,6 +49,15 @@ for (const body of ['Your verification code is 938271','Your code is 938 271','Y
 }
 assert.equal(Store.snapshot({body:'x'.repeat(100000),summary:'y'.repeat(3000)},'test',{Normal:1}).body.length,32768);
 assert.equal(Store.normalise({image:'file:///etc/passwd',stored_image:'/etc/passwd'}).image,'');
+{ // The store's icon verb persists a resolved path after the card is gone;
+  // normalise() must keep a real absolute icon path across a restart, and
+  // drop anything that is not one.
+  const path='/home/u/.local/state/omarchy/omapager/icons/norm-slack.png';
+  assert.equal(Store.normalise({stored_image:path}).stored_image,path);
+  assert.equal(Store.restored({key:'icon',stored_image:path}).stored_image,path);
+  for (const stored of ['relative/icon.png','/tmp/../etc/passwd','',null,42,'image://icon//x.png'])
+    assert.equal(Store.normalise({stored_image:stored}).stored_image,'');
+}
 assert.equal(Store.normalise({body:'hello',bodyRich:'<img src="x">'}).bodyRich,'hello');
 const start=Date.now();
 for (const text of ['<'.repeat(32768),'&amp;'.repeat(6500),'9'.repeat(32768), 'https://'.repeat(4000)]) { M.render(text); D.scan('',text); }

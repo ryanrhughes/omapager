@@ -3,7 +3,7 @@
 #
 #   omapager-icon --key web:app.slack.com --app "Google Chrome" \
 #                 --app-icon google-chrome --source app.slack.com \
-#                 --scheme dark [--fetch]
+#                 --scheme dark [--image /tmp/.../icon.png] [--fetch]
 #
 # Prints a path, or nothing. The order is deliberate: anything you have put
 # there yourself wins, then anything already installed on the machine, and only
@@ -56,6 +56,7 @@ MAX_REMOTE_SIDE = 2048
 MAX_REMOTE_PIXELS = MAX_REMOTE_SIDE * MAX_REMOTE_SIDE
 REMOTE_FORMATS = ("PNG", "JPEG", "WEBP", "ICO")
 SENDER_IMAGE_DATA_URL_CHARS = 131072
+IMAGE_PATH_BYTES = 4096
 
 
 def is_mono_glyph(im, opaque):
@@ -208,43 +209,153 @@ def from_icon_theme(names):
     return None
 
 
-def from_desktop_entries(names):
+def desktop_brand(name):
+    """The entry's first word is its brand.
+
+    "WhatsApp Web" answers for "whatsapp" while a generic word later in the
+    name must not: "Proton Mail" cannot answer for "mail.google.com". The
+    whole-name slug still matches too, for senders that hand over the app's
+    full name rather than a single label.
+
+    The heuristic has known blind spots: a leading article becomes the brand
+    ("The New York Times" brands as "the", never "nytimes"), and a name in a
+    script slug() cannot fold ("Яндекс Музыка" slugs to "") loses its brand
+    entirely. Those entries still answer where Chromium recorded the host they
+    were installed for, and otherwise the caller falls through rather than
+    guess."""
+    return slug((str(name or "").split() or [""])[0])
+
+
+def from_desktop_entries(names, installed_web_apps=False):
     """A .desktop file that answers to this name, and the icon it declares.
 
-    This is what catches "app.slack.com" -> the installed Slack: the entry's
-    name, its window class or its exec line all mention slack."""
+    This is what catches "app.slack.com" -> the installed Slack. Three rules
+    are tried for each wanted label, strongest first:
+
+      1. an exact host the entry was installed for (Chromium records shortcut
+         URLs in the Exec line),
+      2. the entry's whole name,
+      3. the entry's brand, the first word of its Name.
+
+    Each rule must pick exactly one entry. Ambiguity is never resolved by
+    directory order: two Amazon apps both brand "amazon", and "Amazon Music"
+    answering "amazon.com" is worse than no answer. A brand match is also
+    refused when the entry declares a host other than the one wanted - an
+    installed "Google Maps" is a web app for maps.google.com, and the shared
+    word "google" must not let it answer mail.google.com or the bare vendor
+    label. When nothing is certain the caller falls through to the site's own
+    artwork, the icon theme, or the letter tile.
+
+    Free-text matching over Exec and window-class lines is deliberately gone:
+    every web app is run by the same browser, so the browser's name appears in
+    every one of those lines and would select whichever PWA the directory
+    happens to list first.
+
+    installed_web_apps limits the answers to entries Chromium installed for a
+    site (marked with an app id): a browser entry or a URL-scheme handler like
+    Google Maps' carries no app id and must never answer for a host label."""
     wanted = [slug(n) for n in names if slug(n)]
     if not wanted:
         return None
+    entries = []
     for base in APP_DIRS:
-        for path in glob.glob(base + "/*.desktop"):
+        for path in sorted(glob.glob(base + "/*.desktop")):
             try:
                 with open(path, errors="replace") as f:
                     text = f.read(65536)
             except OSError:
                 continue
             fields = {}
-            for key in ("Name", "Icon", "StartupWMClass", "Exec"):
+            for key in ("Name", "Icon"):
                 m = re.search(r"^%s=(.+)$" % key, text, re.M)
                 if m:
                     fields[key] = m.group(1).strip()
             if "Icon" not in fields:
                 continue
-            haystack = " ".join([slug(os.path.basename(path)[:-8]),
-                                 slug(fields.get("Name")),
-                                 slug(fields.get("StartupWMClass")),
-                                 slug(fields.get("Exec"))])
-            for want in wanted:
-                if len(want) < 3:
-                    continue
-                if want in haystack.split("-") or ("-" + want + "-") in ("-" + haystack + "-"):
-                    found = from_icon_theme([fields["Icon"]])
-                    if found:
-                        return found
-                    if (os.path.isabs(fields["Icon"]) and os.path.isfile(fields["Icon"])
-                            and any(os.path.realpath(fields["Icon"]).startswith(os.path.realpath(d) + os.sep) for d in ICON_DIRS)):
-                        return fields["Icon"]
+            if installed_web_apps and not re.search(r"(?:^|\s)--app-id=", text, re.M):
+                continue
+            # Hosts from every URL in the entry: shortcut actions carry the
+            # site URLs, and for a one-letter brand ("X") that is the only
+            # place the host appears in its entry at all.
+            hosts = set(match.group(1).lower().strip(".")
+                        for match in re.finditer(r"https?://([A-Za-z0-9.-]+)", text))
+            entries.append((desktop_brand(fields.get("Name")),
+                            slug(fields.get("Name")), hosts, fields["Icon"]))
+    for want in wanted:
+        for rule in ("host", "name", "brand"):
+            matches = []
+            for brand, name, hosts, icon in entries:
+                if rule == "host":
+                    hit = want in hosts
+                elif rule == "name":
+                    hit = want == name
+                else:
+                    hit = (len(want) >= 3 and want == brand
+                           and (not hosts or want in hosts))
+                if hit:
+                    matches.append(icon)
+            if len(matches) != 1:
+                # No match at this strength, or more than one: an ambiguous
+                # answer is not an answer.
+                continue
+            found = from_icon_theme([matches[0]])
+            if found:
+                return found
+            icon = matches[0]
+            if (os.path.isabs(icon) and os.path.isfile(icon)
+                    and any(os.path.realpath(icon).startswith(os.path.realpath(d) + os.sep) for d in ICON_DIRS)):
+                return icon
     return None
+
+
+def from_image(path):
+    """The image the notification itself carried, copied into the cache.
+
+    A Chromium-family browser points its image-path hint at a temp file that
+    is deleted when the notification closes, so the path itself cannot be the
+    answer. The file is untrusted input: opened without following links and
+    without blocking, bounded, fully decoded and copied under CACHE as a
+    validated PNG. normalise() then shapes the copy like every other icon."""
+    if (not isinstance(path, str) or not os.path.isabs(path)
+            or len(path) > IMAGE_PATH_BYTES
+            or any(ord(character) < 32 or ord(character) == 127 for character in path)):
+        return None
+    flags = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC
+    try:
+        fd = os.open(path, flags)
+    except OSError:
+        return None
+    try:
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode) or not 0 < info.st_size <= REMOTE_ICON_BYTES:
+            return None
+        os.set_blocking(fd, True)
+        data = bytearray()
+        while len(data) <= REMOTE_ICON_BYTES:
+            block = os.read(fd, min(16384, REMOTE_ICON_BYTES + 1 - len(data)))
+            if not block:
+                break
+            data.extend(block)
+    except OSError:
+        return None
+    finally:
+        os.close(fd)
+    if len(data) > REMOTE_ICON_BYTES:
+        return None
+    try:
+        png = normalised_remote_png(bytes(data), shrink=False)
+    except Exception:
+        return None
+    # Content-addressed: every Chromium web app calls its temp file
+    # "icon.png", so naming the copy after the basename would let two sites'
+    # artwork overwrite each other in the cache. Identical pixels dedupe.
+    dest = os.path.join(CACHE, "web-image-"
+                        + hashlib.sha256(bytes(data)).hexdigest()[:16] + ".png")
+    try:
+        write_bytes(dest, png)
+    except Exception:
+        return None
+    return dest
 
 
 # ---------------------------------------------------------------- 3. the site
@@ -361,14 +472,21 @@ def checked_raster(data, formats, max_side):
             return image.convert("RGBA")
 
 
-def normalised_remote_png(data):
+def normalised_remote_png(data, shrink=True):
+    """Fully decoded, validated PNG bytes.
+
+    shrink thumbnails to the icon canvas for callers that draw or bound the
+    result directly (the fetched-icon cache, sender data URLs). from_image()
+    passes shrink=False so the copy stays at the decoded size and normalise()
+    shapes it exactly once."""
     if not isinstance(data, bytes) or len(data) > REMOTE_ICON_BYTES:
         raise ValueError("oversized image")
     image = checked_raster(data, REMOTE_FORMATS, MAX_REMOTE_SIDE)
     try:
         if image.width < 8 or image.height < 8:
             raise ValueError("image too small")
-        image.thumbnail((NORM, NORM))
+        if shrink:
+            image.thumbnail((NORM, NORM))
         output = io.BytesIO()
         image.save(output, format="PNG")
         return output.getvalue()
@@ -494,13 +612,25 @@ def invalidate_cached_remote_icon(host, scheme, cached):
 
 
 # ---------------------------------------------------------------- resolve
+# Host labels that describe a service, not a brand. "mail.google.com" must
+# not offer "mail" as a candidate: the first installed app with the word in
+# its name ("Proton Mail") would win, and Gmail would wear it. A brand is the
+# whole point - "whatsapp" is WhatsApp Web; "mail" is only what it does.
+GENERIC_WEB_LABELS = frozenset((
+    "mail", "calendar", "drive", "docs", "photos", "maps", "news", "chat",
+    "meet", "search", "play", "video", "music", "groups", "sheets", "slides",
+    "accounts", "admin", "translate"))
+
+
 def host_names(source):
     """app.slack.com -> slack, app.slack.com. The middle label is almost always
-    the name of the thing."""
+    the name of the thing. Service words are dropped so a generic label cannot
+    stand in for a brand of its own."""
     s = public_hostname(source)
     if not s:
         return []
-    labels = [l for l in s.split(".") if l not in ("www", "app", "web", "my", "m")]
+    labels = [l for l in s.split(".")
+              if l not in ("www", "app", "web", "my", "m") and l not in GENERIC_WEB_LABELS]
     names = [s]
     if len(labels) >= 2:
         names.append(labels[-2])
@@ -511,12 +641,42 @@ def host_names(source):
 
 def resolve(args):
     web = host_names(args.source)
+    # The key says whether the row is a web notification. A bare source label
+    # the URL parser will not accept as a host ("google") is a host label all
+    # the same when the key says web, and only installed web apps may answer
+    # for it - otherwise the browser name gets a turn through the app fallback
+    # and the wrong PWA wins.
+    web_row = bool(web) or str(getattr(args, "key", "") or "").startswith("web:")
+    if not web and web_row:
+        label = slug(args.source)
+        if label and label not in GENERIC_WEB_LABELS:
+            web = [label]
     app = [n for n in [args.app_icon, args.source, args.app] if n]
 
     # Anything you dropped in the config directory wins outright.
     hit = from_config(web + app + ([args.key] if args.key else []))
     if hit:
         return hit, "from_config"
+
+    # A web app installed on this machine, matched on the host's own brand
+    # labels. This has to come before the icon theme and before the
+    # notification's own artwork: "x.com" is not an icon name, but the X web
+    # app's entry knows the host from the shortcut URLs it was installed for.
+    if web:
+        hit = from_desktop_entries(web, installed_web_apps=True)
+        if hit:
+            return hit, "from_desktop_entries:web"
+
+    # The artwork the notification itself carried. Chromium hands the site's
+    # icon over as an image-path hint pointing at a temp file that dies with
+    # the notification; from_image() copies the pixels into the cache, so the
+    # answer outlives the file. An installed web app has already won above -
+    # its icon is the more precise answer where both exist.
+    image = getattr(args, "image", "")
+    if web_row and image:
+        hit = from_image(image)
+        if hit:
+            return hit, "from_image"
 
     # For a web notification, the site comes first and the browser last: the
     # other way round hands Slack, Gmail and Calendar three identical Chromes.
@@ -535,7 +695,7 @@ def resolve(args):
     # Not for a web notification, though: every one of those is `-i
     # google-chrome`, and the browser showing the page is the one thing the
     # icon must not be. The site wins there.
-    if args.app_icon and not web:
+    if args.app_icon and not web_row:
         hit = from_icon_theme([args.app_icon])
         if hit:
             return hit, "from_icon_theme:hint"
@@ -574,11 +734,19 @@ def resolve(args):
                 if hit:
                     return hit, "fetched:" + host
 
-    # Whatever delivered it, as a last resort before the letter tile.
-    for step in (from_icon_theme, from_desktop_entries):
-        hit = step(app)
-        if hit:
-            return hit, step.__name__ + ":app"
+    # Whatever delivered it, as a last resort before the letter tile. For a
+    # web notification the browser name is deliberately absent: every web-app
+    # entry is run by the same browser, so "helium" would select whichever
+    # PWA the directory happens to list first instead of the site. The labels
+    # the site answers to are used instead, and only installed web apps are
+    # allowed to answer, so a URL-scheme handler cannot take the site's place.
+    fallback = web if web_row else app
+    hit = from_icon_theme(fallback)
+    if hit:
+        return hit, "from_icon_theme:app"
+    hit = from_desktop_entries(fallback, installed_web_apps=web_row)
+    if hit:
+        return hit, "from_desktop_entries:app"
     return None, "none"
 
 
@@ -589,6 +757,7 @@ def main(argv=None):
     ap.add_argument("--app", default="")
     ap.add_argument("--app-icon", default="")
     ap.add_argument("--source", default="")
+    ap.add_argument("--image", default="")
     ap.add_argument("--scheme", default="dark", choices=["dark", "light"])
     ap.add_argument("--fetch", action="store_true")
     ap.add_argument("--why", action="store_true", help="print where it came from")

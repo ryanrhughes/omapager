@@ -4,6 +4,7 @@
 #   put              read one notification JSON on stdin, write it to live/
 #   close KEY WHY    move live/KEY.json into history/, trimmed to size and age
 #   drop KEY         forget a live notification without recording it
+#   icon KEY PATH    record the resolved icon path on a live/history entry
 #   restore          print the live notifications, oldest first
 #   history [N]      print the newest N history entries, newest first
 #   tidy             drop history past its age, and icons nothing has wanted
@@ -74,6 +75,15 @@ def safe(name):
     return value
 
 
+def private_icon(path):
+    """True when path is inside the plugin's own icon cache and nowhere else.
+    Resolved first, so a symlink or .. cannot point the check somewhere else."""
+    value = str(path or "")
+    if not os.path.isabs(value):
+        return False
+    return os.path.realpath(value).startswith(os.path.realpath(ICONS) + os.sep)
+
+
 # Keep the raw-helper/legacy check independent of caller-supplied code flags,
 # but use Detect.js's vocabulary, windows and shapes. Product names and years
 # are ordinary notification text; migrating them must not destroy history.
@@ -121,7 +131,8 @@ def sanitise(entry):
     # Independently defend raw helper callers and legacy state migrations.
     allowed = {"key", "originalId", "senderPid", "app", "appIcon", "summary",
                "body", "rawBody", "bodyLine", "source", "groupKey", "urgency",
-               "expireTimeout", "duration", "ts", "closed_ts", "closed_reason"}
+               "expireTimeout", "duration", "ts", "closed_ts", "closed_reason",
+               "stored_image"}
     # Scan the same bounded summary/rawBody/body fields as Store's redaction,
     # not metadata: keys/groupKey and app names can contain unrelated numbers
     # or product keywords. This independent detector strips raw tags before
@@ -138,6 +149,11 @@ def sanitise(entry):
     if secret:
         out = {k: v for k, v in out.items() if not isinstance(v, str) or k == "key"}
         out.update(summary="Verification notification", body="[redacted]", rawBody="[redacted]", bodyLine="[redacted]")
+    # A resolved icon is a file the helper copied into the plugin's own cache.
+    # Rows that carry anything else (a caller-chosen path, a legacy entry) lose
+    # the field rather than hand it on to the next reader.
+    if "stored_image" in out and not private_icon(out["stored_image"]):
+        del out["stored_image"]
     # Rich text, actions, image paths and reply handles are reconstructed or dropped.
     return out
 
@@ -186,6 +202,64 @@ def cmd_drop(key):
         os.remove(os.path.join(LIVE, safe(key) + ".json"))
     except OSError:
         pass
+    return 0
+
+
+def safe_selector(name):
+    """The icon verb is keyed by the group key Service.qml resolved for
+    ("web:proton.me", "app:helium", "kdeconnect:My Phone"), but files are named
+    by the slot key ("n1abc"). The selector never names a path here - the files
+    are found by reading them - so it need only refuse what a key can never
+    contain: path separators, control characters, empties and absurd lengths,
+    not the spaces and non-ASCII labels a real group key can carry."""
+    value = str(name or "")
+    if (not value or len(value) > 200
+            or "/" in value or "\\" in value
+            or any(ord(character) < 32 or ord(character) == 127 for character in value)):
+        raise ValueError("invalid key")
+    return value
+
+
+def safe_icon_path(path):
+    """A resolved icon is a plain absolute path to a file in the plugin's own
+    icon cache, never a caller-chosen file, a URL or an option."""
+    value = str(path or "")
+    if (not os.path.isabs(value) or len(value) > 4096
+            or any(ord(character) < 32 or ord(character) == 127 for character in value)
+            or not private_icon(value)):
+        raise ValueError("invalid icon path")
+    return value
+
+
+def cmd_icon(selector, path):
+    """Record the resolved icon path on a notification, live or historical.
+
+    Resolution can finish after the card was dismissed, and it is keyed by the
+    group key ("web:proton.me") while the files are named by slot key
+    ("n1abc"): the key it wants is stored inside each entry, so match on what
+    the files say instead of on their names. Live files are updated wherever
+    they match; for history only the newest entry is worth a write. Idempotent:
+    an unchanged answer rewrites nothing."""
+    selector = safe_selector(selector)
+    path = safe_icon_path(path)
+    live_targets = []
+    history_targets = []
+    for directory, targets in ((LIVE, live_targets), (HISTORY, history_targets)):
+        for name in sorted(os.listdir(directory)):
+            if not name.endswith(".json"):
+                continue
+            entry = read_json(os.path.join(directory, name))
+            if not isinstance(entry, dict):
+                continue
+            if entry.get("key") != selector and entry.get("groupKey") != selector:
+                continue
+            targets.append(os.path.join(directory, name))
+    for target in live_targets + history_targets[-1:]:
+        entry = read_json(target)
+        if not isinstance(entry, dict) or entry.get("stored_image") == path:
+            continue
+        entry["stored_image"] = path
+        write_json(target, entry)
     return 0
 
 
@@ -313,6 +387,10 @@ def main():
         return cmd_close(args[1], args[2] if len(args) > 2 else "")
     if verb == "drop":
         return cmd_drop(args[1])
+    if verb == "icon":
+        if len(args) < 3:
+            return 2
+        return cmd_icon(args[1], args[2])
     if verb == "restore":
         json.dump(listing(LIVE), sys.stdout, separators=(",", ":"))
         return 0
