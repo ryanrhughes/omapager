@@ -302,6 +302,8 @@ omarchy-shell omapager dnd              toggle Do Not Disturb
 omarchy-shell omapager expand           open the deck, as hovering would
 omarchy-shell omapager offer code       take the front card's offer (code|link|phone)
 omarchy-shell omapager act reply        invoke one of the sender's actions
+omarchy-shell omapager invoke 12 default  invoke one action on a still-live notification, by daemon id and action identifier
+omarchy-shell omapager invoke 12 ""       the same call with the default action (the argument cannot be omitted; "" selects the default)
 omarchy-shell omapager reply "text"     answer the front card ("" opens the field)
 omarchy-shell omapager snooze 60        quieten the front card's source, in minutes
 omarchy-shell omapager snoozeAll 60     quieten everything for 60 minutes, or wake it

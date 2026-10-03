@@ -2109,6 +2109,36 @@ Item {
       return wanted
     }
 
+    // Invoke one of the sender's actions on one specific notification, named
+    // by the daemon-assigned id a surface outside the shell can keep. `act`
+    // only ever reaches the front card; a panel row clicked elsewhere names a
+    // notification the front card is not. The daemon id is the one handle
+    // both sides share, and the sender's live "default" action is the only
+    // route back to the conversation behind a Chromium notification, whose
+    // body carries no per-chat URL. Only a live sender object is considered:
+    // a row restored from disk has no actions left to invoke, and must not be
+    // closed by a call that can do nothing for it. The action argument cannot
+    // be omitted (Quickshell enforces arity); "" selects the default action.
+    function invoke(id: string, action: string): string {
+      var wanted = String(action || "")
+      if (!wanted) wanted = "default"
+      if (wanted.length > Security.MAX_ACTION_ID) return "none"
+      var found = Store.findLiveKey(Store.liveEntries(liveKeys, function(key) {
+        return !!(refs[key] && refs[key].actions && refs[key].actions.length)
+      }), id)
+      if (!found) return "none"
+      // An action the sender never offered is a not-found too: closing the
+      // card here would take it away while reporting success for something
+      // that never ran.
+      var offered = service.actionsOf(found, service.refsRevision)
+      var present = false
+      for (var i = 0; i < offered.length; i++)
+        if (offered[i].id === wanted) { present = true; break }
+      if (!present) return "none"
+      service.invokeAction(found, wanted)
+      return wanted
+    }
+
     // Take one of the front card's offers - "code", "link", "phone".
     // The same thing the little marks do, without a pointer.
     function offer(kind: string): string {

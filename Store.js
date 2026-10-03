@@ -179,6 +179,48 @@ function restored(entry) {
   return row
 }
 
+// The live set as rows for findLiveKey. The caller owns the "sender still has
+// actions" question (only the shell holds the sender objects); this shapes the
+// key map and asks the predicate, so the row shape stays testable in isolation.
+function liveEntries(liveKeys, isLive) {
+  var map = liveKeys || {}
+  var test = typeof isLive === "function" ? isLive : function() { return false }
+  var out = []
+  for (var key in map) {
+    var slot = map[key]
+    out.push({
+      key: String(key),
+      originalId: slot ? slot.originalId : 0,
+      live: !!test(key)
+    })
+  }
+  return out
+}
+
+// Which still-live notification a daemon-assigned id names. A surface outside
+// the shell (a notification panel's own archive) can only remember the id the
+// daemon assigned at arrival; the live maps here are keyed by our own slot key
+// instead, so an id is resolved by scanning the live set for it. `live` is the
+// caller's answer to "does a sender object with actions still exist behind this
+// key": a row restored from disk has no sender left to invoke, so an id that
+// only matches a dead row is no match at all.
+function findLiveKey(entries, id) {
+  var text = String(id === undefined || id === null ? "" : id)
+  // A positive integer in its canonical spelling: no sign, no leading zeros,
+  // no fraction. The id is a name here, not a number to reinterpret, and 32
+  // bits is the width the notification protocol gives it.
+  if (!/^[1-9][0-9]{0,9}$/.test(text)) return ""
+  var wanted = Number(text)
+  if (wanted > 4294967295) return ""
+  var list = entries || []
+  for (var i = 0; i < list.length; i++) {
+    var entry = list[i]
+    if (!entry || !entry.live) continue
+    if (Number(entry.originalId) === wanted) return String(entry.key || "")
+  }
+  return ""
+}
+
 function parseList(text) {
   try {
     if (String(text || "").length > 100 * Security.MAX_HISTORY_ENTRY_BYTES) return []
